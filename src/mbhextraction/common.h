@@ -26,6 +26,8 @@ struct Frame
 	int64_t PTS;
 	bool NoMotionVectors;
 	char PictType;
+	float width;
+	float height;
 
 	Frame(int frameIndex, Mat dx, Mat dy, Mat missing)
 		: FrameIndex(frameIndex), Dx(dx), Dy(dy), Missing(missing), NoMotionVectors(false), PTS(-1), PictType('?')

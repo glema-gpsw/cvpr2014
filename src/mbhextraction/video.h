@@ -57,8 +57,10 @@ struct FrameReader
 	int frameIndex;
 	int64_t prev_pts;
 	bool ReadRawImages;
-	double time;
+	float time;
 	double frameScale;
+	int64_t timeBase;
+	float fps;
 	AVFrame         *pFrame;
 	AVFormatContext *pFormatCtx;
 	SwsContext		*img_convert_ctx;
@@ -68,7 +70,7 @@ struct FrameReader
 	FILE* in;
 	AVFrame rgb_picture;
 	int videoStream;
-
+	float height, width;
 	void print_ffmpeg_error(int err) // copied from cmdutils.c
 	{
 		char errbuf[128];
@@ -88,7 +90,7 @@ struct FrameReader
 		frameIndex = 1;
 		videoStream = -1;
 		pFormatCtx = avformat_alloc_context();
-
+		
 		av_register_all();
 
 		int err = 0;
@@ -130,9 +132,13 @@ struct FrameReader
 
 				int cols = enc->width;
 				int rows = enc->height;
-
+				width = enc->width;
+				height = enc->height;
 				FrameCount = video_st->nb_frames;
 				frameScale = av_q2d (video_st->time_base);
+				fps = av_q2d(video_st->r_frame_rate);
+				timeBase = (int64_t(enc->time_base.num) * AV_TIME_BASE) / int64_t(enc->time_base.den);
+
 				if(FrameCount == 0)
 				{
 					FrameCount = (double)video_st->duration * frameScale;
@@ -173,6 +179,7 @@ struct FrameReader
 			if(initialized)
 			{
 				if(process_frame(&pktCopy)){
+					//time = (float)pktCopy.pts*frameScale;
 					time = (double)pktCopy.dts*frameScale;
 					return true;
 				}
@@ -199,8 +206,21 @@ struct FrameReader
 
 		return process_frame(&pkt);
 	}
-
-
+	void seek(float time){//, int frameIndex){
+		//int64_t seekTarget = (int64_t)(time/frameScale);
+		//std::cout<<"seekTarget: "<<seekTarget<<std::endl;
+		float time_ = (float) time;
+		float frameIndex = time_*fps;
+		std::cout<<"Time :"<<time<<std::endl;
+		std::cout<<"Time :"<<time_<<std::endl;
+		std::cout<<"FrameIndex :"<<frameIndex<<std::endl;
+		std::cout<<"FPS :"<<fps<<std::endl;
+		//int64_t seekTarget = int64_t(time*fps) * timeBase;
+		int64_t seekTarget = (int64_t)(time * (float)AV_TIME_BASE/1000.);
+		std::cout<<"seekTarget: "<<seekTarget<<std::endl;
+		std::cout<<"AV_TIME_BASE: "<<AV_TIME_BASE<<std::endl;
+		av_seek_frame(pFormatCtx, -1, seekTarget, AVSEEK_FLAG_ANY);
+	}
 	bool process_frame(AVPacket *pkt)
 	{
 		av_frame_unref(pFrame);
@@ -218,6 +238,8 @@ struct FrameReader
 
 	void PutMotionVectorInMatrix(MotionVector& mv, Frame& f)
 	{
+		f.width = width;
+		f.height = height;
 		int i_16 = mv.Y / gridStep;
 		int j_16 = mv.X / gridStep;
 

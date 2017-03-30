@@ -101,7 +101,6 @@ Mat BuildOrientationIntegralTransform(DescInfo descInfo, Mat_<float> dx, Mat_<fl
 
 void ComputeDescriptor(Mat& integralTransform, Rect rect, DescInfo descInfo, float* desc)
 {
-	TIMERS.CallsComputeDescriptor++;
 
 	const float epsilon = 0.05;
 
@@ -204,7 +203,7 @@ struct HofMbhBuffer
 	Size frameSizeAfterInterpolation;
 	bool print;
 	bool AreDescriptorsReady;
-	vector<int> effectiveFrameIndices;
+	vector<float> effectiveFrameIndices;
 	int tStride;
 	int ntCells;
 	double fScale;
@@ -289,7 +288,7 @@ struct HofMbhBuffer
 		CreatePatchDescriptorPlaceholder(hogInfo, hofInfo, mbhInfo);
 	}
 
-	void Update(Frame& frame, double hofCorrectionFactor)
+	void Update(Frame& frame, float time, double hofCorrectionFactor)
 	{
 		if(hofInfo.enabled)
 		{
@@ -299,10 +298,16 @@ struct HofMbhBuffer
 		if(mbhInfo.enabled)
 		{
 			Mat flowXdX, flowXdY, flowYdX, flowYdY;
-			Sobel(frame.Dx, flowXdX, CV_32F, 1, 0, 1);
+			Sobel(frame.Dx/(frame.height/frame.width), flowXdX, CV_32F, 1, 0, 1);
+			Sobel(frame.Dx/(frame.height/frame.width), flowXdY, CV_32F, 0, 1, 1);
+			Sobel(frame.Dy, flowYdX, CV_32F, 1, 0, 1);
+			Sobel(frame.Dy, flowYdY, CV_32F, 0, 1, 1);
+			
+			/*Sobel(frame.Dx, flowXdX, CV_32F, 1, 0, 1);
 			Sobel(frame.Dx, flowXdY, CV_32F, 0, 1, 1);
 			Sobel(frame.Dy, flowYdX, CV_32F, 1, 0, 1);
 			Sobel(frame.Dy, flowYdY, CV_32F, 0, 1, 1);
+			*/
 			mbhX.Update(flowXdX, flowXdY);
 			mbhY.Update(flowYdX, flowYdY);
 		}
@@ -315,7 +320,7 @@ struct HofMbhBuffer
 			hog.Update(dx, dy);
 		}
 
-		effectiveFrameIndices.push_back(frame.PTS);
+		effectiveFrameIndices.push_back(time);
 		AreDescriptorsReady = false;
 		if(effectiveFrameIndices.size() % tStride == 0)
 		{
@@ -397,13 +402,24 @@ struct HofMbhBuffer
 	//		TIMERS.Writing.Start();
 			//PrintPatchDescriptorHeader(rect);
 			//PrintFloatArray(patchDescriptor, descriptors);
-			
+			/*
+			descriptors.append(rect.x);
+			descriptors.append(rect.y);
+			descriptors.append(rect.width);
+			descriptors.append(rect.height);
+		        */
+			float minTime = *std::min_element(effectiveFrameIndices.begin(), effectiveFrameIndices.end());
+		        float maxTime = *std::max_element(effectiveFrameIndices.begin() , effectiveFrameIndices.end());	
+			descriptors.append(minTime);
+			descriptors.append(maxTime);
 			float* ptr_m = patchDescriptor.ptr<float>();
 			for(int i = 0; i < patchDescriptor.size().area(); i++)
 			{
 			descriptors.append(ptr_m[i]);
 			}		
+		
 		}
+		
 	}
 
 	void PrintFullDescriptor(int blockWidth, int blockHeight, int xStride, int yStride, boost::python::list & descriptors)
@@ -417,6 +433,7 @@ struct HofMbhBuffer
 				
 			}
 		}
+		effectiveFrameIndices.clear();
 	}
 };
 

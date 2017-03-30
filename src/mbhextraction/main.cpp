@@ -33,7 +33,7 @@ struct Options
 		HofEnabled = false; //we don't actually use them
 		MbhEnabled = true;
 		Dense = false;
-		Interpolation = true;
+		Interpolation = false;
 		VideoPath = video;
 		if(!ifstream(VideoPath.c_str()).good())
 			throw runtime_error("Video doesn't exist or can't be opened: " + VideoPath);
@@ -47,15 +47,15 @@ list get_descriptors(string video, double start =0, double end =-1)
 	const int tStride = 5;
 	vector<Size> patchSizes;
 	patchSizes.push_back(Size(32, 32));
-	patchSizes.push_back(Size(48, 48));
+	//patchSizes.push_back(Size(48, 48));
 
 	DescInfo hofInfo(8+1, true, nt_cell, opts.HofEnabled);
 	DescInfo mbhInfo(8, false, nt_cell, opts.MbhEnabled);
 	DescInfo hogInfo(8, false, nt_cell, opts.HogEnabled);
 
-	int counter = -1;
+	float time = -1;
 	FrameReader rdr(opts.VideoPath, hogInfo.enabled);
-	std::cout<<"Frame count: "<<rdr.FrameCount<<std::endl;
+	Frame frame;
 	boost::python::list descriptors;
 	Size frameSizeAfterInterpolation = 
 		opts.Interpolation
@@ -66,11 +66,10 @@ list get_descriptors(string video, double start =0, double end =-1)
 
 	HofMbhBuffer buffer(hogInfo, hofInfo, mbhInfo, nt_cell, tStride, frameSizeAfterInterpolation, fscale, rdr.FrameCount, true);
 
-	Frame frame = rdr.Read();
-	double time = -1;
 	// we read and discard until we get to the start frame
 	while(time < start){
-		Frame frame = rdr.Read();
+		frame = rdr.Read();
+
 		if (frame.PTS == -1){
 			descriptors.append(-3.);
 			break;
@@ -88,12 +87,11 @@ list get_descriptors(string video, double start =0, double end =-1)
 			break;
 		}
 		if(frame.NoMotionVectors || (hogInfo.enabled && frame.RawImage.empty())){
-			++counter;
 			continue;
 		}
 
 		frame.Interpolate(frameSizeAfterInterpolation, fscale);
-		buffer.Update(frame, 1);
+		buffer.Update(frame, rdr.time, 1);
 		if(buffer.AreDescriptorsReady)
 		{
 			for(int k = 0; k < patchSizes.size(); k++)
@@ -105,11 +103,21 @@ list get_descriptors(string video, double start =0, double end =-1)
 				buffer.PrintFullDescriptor(blockWidth, blockHeight, xStride, yStride, descriptors);
 			}
 		}
-		++counter;
 	}
 	return descriptors;
  }
 
-BOOST_PYTHON_MODULE(module_mpegflow) {
+float get_video_length(string video)
+{
+	Options opts(video);
+	setNumThreads(1);
+	FrameReader rdr(opts.VideoPath, false);
+	float length;
+	length = (float) rdr.FrameCount;
+	length /= rdr.fps;	
+	return length;
+}
+BOOST_PYTHON_MODULE(mpegflow) {
     def("run", get_descriptors);
+    def("get_video_length", get_video_length);
 }
