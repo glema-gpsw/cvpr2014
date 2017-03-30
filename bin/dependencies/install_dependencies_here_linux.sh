@@ -11,8 +11,8 @@ cd ..
 wget http://ffmpeg.org/releases/ffmpeg-2.4.tar.bz2
 tar -xf ffmpeg-2.4.tar.bz2
 cd ffmpeg-2.4
-./configure --prefix=$(pwd)/.. --yasmexe=$(pwd)/../bin/yasm
-make -j4 && make install
+./configure --enable-shared --prefix=$(pwd)/.. --yasmexe=$(pwd)/../bin/yasm
+make && make install
 cd ..
 
 wget http://downloads.sourceforge.net/project/opencvlibrary/opencv-unix/2.4.9/opencv-2.4.9.zip

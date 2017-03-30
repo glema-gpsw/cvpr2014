@@ -146,7 +146,7 @@ struct FrameReader
 
 				DownsampledFrameSize = Size(cols / gridStep, rows / gridStep);
 				OriginalFrameSize = Size(cols, rows);
-
+/*
 				AVPixelFormat target = AV_PIX_FMT_BGR24;
 				img_convert_ctx = sws_getContext(video_st->codec->width,
 					video_st->codec->height,
@@ -159,7 +159,7 @@ struct FrameReader
 
 				avpicture_fill( (AVPicture*)&rgb_picture, NULL,
 					target, cols, rows );
-
+*/
 				//av_log_set_level(AV_LOG_QUIET);
 				//av_log_set_callback(av_null_log_callback);
 				break;
