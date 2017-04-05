@@ -408,10 +408,10 @@ struct HofMbhBuffer
 			descriptors.append(rect.width);
 			descriptors.append(rect.height);
 		        */
-			float minTime = *std::min_element(effectiveFrameIndices.begin(), effectiveFrameIndices.end());
-		        float maxTime = *std::max_element(effectiveFrameIndices.begin() , effectiveFrameIndices.end());	
-			descriptors.append(minTime);
-			descriptors.append(maxTime);
+			//float minTime = *std::min_element(effectiveFrameIndices.begin(), effectiveFrameIndices.end());
+		        //float maxTime = *std::max_element(effectiveFrameIndices.begin() , effectiveFrameIndices.end());	
+			//descriptors.append(minTime);
+			//descriptors.append(maxTime);
 			float* ptr_m = patchDescriptor.ptr<float>();
 			for(int i = 0; i < patchDescriptor.size().area(); i++)
 			{

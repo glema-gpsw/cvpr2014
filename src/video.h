@@ -1,31 +1,32 @@
-#ifdef _MSC_VER
-#include "inttypes.h"
-#endif
-
-#include <stdint.h>
-
-extern "C"
-{
+/*
+ * Copyright (c) 2012 Stefano Sabatini
+ * Copyright (c) 2014 Clément Bœsch
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
 #include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libswscale/swscale.h>
 #include <libavutil/motion_vector.h>
-}
-
-#include <cstdio>
-#include <cassert>
-#include <cstdlib>
-#include <ctime>
+#include <libavformat/avformat.h>
 #include <string>
 #include "common.h"
-#include "diag.h"
-#include <opencv/cv.h>
 
-using namespace std;
 using namespace cv;
-
-#ifndef __FRAME_READER_H__
-#define __FRAME_READER_H__
 
 struct MotionVector
 {
@@ -48,192 +49,134 @@ struct MotionVector
 	}
 };
 
+#ifndef __FRAME_READER_H__
+#define __FRAME_READER_H__
+
 struct FrameReader
 {
+
+
 	static const int gridStep = 16;
+	AVFormatContext *fmt_ctx;
+	AVCodecContext *video_dec_ctx;
+	AVStream *video_stream;
+	const char *src_filename;
+
+	int video_stream_idx;
+	AVFrame *frame;
+	AVPacket pkt;
+	int video_frame_count;
+	int ret, got_frame;
+	float time;
+	int width, height;
 	Size DownsampledFrameSize;
 	Size OriginalFrameSize;
-	int FrameCount;
-	int frameIndex;
-	int64_t prev_pts;
-	bool ReadRawImages;
-	float time;
-	double frameScale;
-	int64_t timeBase;
-	float fps;
-	AVFrame         *pFrame;
-	AVFormatContext *pFormatCtx;
-	SwsContext		*img_convert_ctx;
-	AVStream		*video_st;
-	AVIOContext		*pAvioContext;
-	uint8_t			*pAvio_buffer;
-	FILE* in;
-	AVFrame rgb_picture;
-	int videoStream;
-	float height, width;
-	void print_ffmpeg_error(int err) // copied from cmdutils.c
+	float fps, frameScale;
+	int timeBase;
+	int frameCount;	
+	FrameReader(const char *videoPath)
 	{
-		char errbuf[128];
-		const char *errbuf_ptr = errbuf;
+	
+	fmt_ctx = NULL;
+	video_dec_ctx = NULL;
+	video_stream = NULL;
+	frame = NULL;
+	src_filename = videoPath;
+	time = -1.;
+	video_stream_idx = -1;
+	video_frame_count = 0;
+	
+	av_register_all();
+	if (avformat_open_input(&fmt_ctx, src_filename, NULL, NULL) < 0) {
+		fprintf(stderr, "Could not open source file %s\n", src_filename);
+		exit(1);
+	}
 
-		if (av_strerror(err, errbuf, sizeof(errbuf)) < 0)
-			errbuf_ptr = strerror(AVUNERROR(err));
-		av_log(NULL, AV_LOG_ERROR, "print_ffmpeg_error: %s\n", errbuf_ptr);
+        if (avformat_find_stream_info(fmt_ctx, NULL) < 0) {
+		fprintf(stderr, "Could not find stream information\n");
+		exit(1);
+	}
+
+	open_codec_context(fmt_ctx, AVMEDIA_TYPE_VIDEO);
+	av_dump_format(fmt_ctx, 0, src_filename, 0);
+
+	if (!video_stream) {
+	fprintf(stderr, "Could not find video stream in the input, aborting\n");
+	ret = 1;
+	release();
+	exit(1);
+	}
+
+	frame = av_frame_alloc();
+	if (!frame) {
+	fprintf(stderr, "Could not allocate frame\n");
+	ret = AVERROR(ENOMEM);
+	release();
+	exit(1);
+	}
+
+
+	int cols = video_dec_ctx->width;
+	int rows = video_dec_ctx->height;
+	width = video_dec_ctx->width;
+	height = video_dec_ctx->height;
+	frameCount = video_stream->nb_frames;
+	frameScale = av_q2d (video_stream->time_base);
+	fps = av_q2d(video_stream->r_frame_rate);
+	timeBase = (int64_t(video_dec_ctx->time_base.num) * AV_TIME_BASE) / int64_t(video_dec_ctx->time_base.den);
+
+	if(frameCount == 0)
+	{
+		frameCount = (double)video_stream->duration * frameScale;
+	}
+
+	DownsampledFrameSize = Size(cols / gridStep, rows / gridStep);
+	OriginalFrameSize = Size(cols, rows);
 	}
 	
-	FrameReader(string videoPath, bool readRawImages)
+	int open_codec_context(AVFormatContext *fmt_ctx, enum AVMediaType type)
 	{
-		ReadRawImages = readRawImages;
-		pAvioContext = NULL;
-		pAvio_buffer = NULL;
-		in = NULL;
-		frameIndex = 1;
-		videoStream = -1;
-		pFormatCtx = avformat_alloc_context();
-		
-		av_register_all();
+	    int ret;
+	    AVStream *st;
+	    AVCodecContext *dec_ctx = NULL;
+	    AVCodec *dec = NULL;
+	    AVDictionary *opts = NULL;
 
-		int err = 0;
+	    ret = av_find_best_stream(fmt_ctx, type, -1, -1, &dec, 0);
+	    if (ret < 0) {
+		fprintf(stderr, "Could not find %s stream in input file '%s'\n",
+			av_get_media_type_string(type), src_filename);
+		return ret;
+	    } else {
+		int stream_idx = ret;
+		st = fmt_ctx->streams[stream_idx];
 
-		if ((err = avformat_open_input(&pFormatCtx, videoPath.c_str(), NULL, NULL)) != 0)
-		{
-			print_ffmpeg_error(err);
-			throw std::runtime_error("Couldn't open file");
+		dec_ctx = avcodec_alloc_context3(dec);
+		if (!dec_ctx) {
+		    fprintf(stderr, "Failed to allocate codec\n");
+		    return AVERROR(EINVAL);
 		}
 
-		if ((err = avformat_find_stream_info(pFormatCtx, NULL)) < 0)
-		{
-			print_ffmpeg_error(err);
-			throw std::runtime_error("Stream information not found");
+		ret = avcodec_parameters_to_context(dec_ctx, st->codecpar);
+		if (ret < 0) {
+		    fprintf(stderr, "Failed to copy codec parameters to codec context\n");
+		    return ret;
 		}
 
-		for(int i = 0; i < pFormatCtx->nb_streams; i++)
-		{
-			AVCodecContext *enc = pFormatCtx->streams[i]->codec;
-			if( AVMEDIA_TYPE_VIDEO == enc->codec_type && videoStream < 0)
-			{
-				// don't care FF_DEBUG_VIS_MV_B_BACK
-				//enc->debug_mv = FF_DEBUG_VIS_MV_P_FOR | FF_DEBUG_VIS_MV_B_FOR;
-				//enc->debug |= FF_DEBUG_DCT_COEFF;
-
-				AVCodec *pCodec = avcodec_find_decoder(enc->codec_id);
-
-				//if (pCodec->capabilities & CODEC_CAP_TRUNCATED)
-				//	pCodecCtx->flags |= CODEC_FLAG_TRUNCATED;
-				AVDictionary *opts = NULL;
-				av_dict_set(&opts, "flags2", "+export_mvs", 0);
-				if (!pCodec || avcodec_open2(enc, pCodec, &opts) < 0)
-					throw std::runtime_error("Codec not found or cannot open codec");
-
-				videoStream = i;
-				video_st = pFormatCtx->streams[i];
-				//pFrame = avcodec_alloc_frame();
-				pFrame = av_frame_alloc();
-
-				int cols = enc->width;
-				int rows = enc->height;
-				width = enc->width;
-				height = enc->height;
-				FrameCount = video_st->nb_frames;
-				frameScale = av_q2d (video_st->time_base);
-				fps = av_q2d(video_st->r_frame_rate);
-				timeBase = (int64_t(enc->time_base.num) * AV_TIME_BASE) / int64_t(enc->time_base.den);
-
-				if(FrameCount == 0)
-				{
-					FrameCount = (double)video_st->duration * frameScale;
-				}
-
-				DownsampledFrameSize = Size(cols / gridStep, rows / gridStep);
-				OriginalFrameSize = Size(cols, rows);
-/*
-				AVPixelFormat target = AV_PIX_FMT_BGR24;
-				img_convert_ctx = sws_getContext(video_st->codec->width,
-					video_st->codec->height,
-					video_st->codec->pix_fmt,
-					video_st->codec->width,
-					video_st->codec->height,
-					target,
-					SWS_BICUBIC,
-					NULL, NULL, NULL);
-
-				avpicture_fill( (AVPicture*)&rgb_picture, NULL,
-					target, cols, rows );
-*/
-				//av_log_set_level(AV_LOG_QUIET);
-				//av_log_set_callback(av_null_log_callback);
-				break;
-			}
-		}
-		if(videoStream == -1)
-			throw std::runtime_error("Video stream not found");
-	}
-
-	bool GetNextFrame()
-	{
-		static bool initialized = false;
-		static AVPacket pkt, pktCopy;
-
-		while(true)
-		{
-			if(initialized)
-			{
-				if(process_frame(&pktCopy)){
-					//time = (float)pktCopy.pts*frameScale;
-					time = (double)pktCopy.dts*frameScale;
-					return true;
-				}
-				else
-				{
-					av_free_packet(&pkt);
-					initialized = false;
-				}
-			}
-
-			int ret = av_read_frame(pFormatCtx, &pkt);
-			if(ret != 0)
-				break;
-
-			initialized = true;
-			pktCopy = pkt;
-			if(pkt.stream_index != videoStream )
-			{
-				av_free_packet(&pkt);
-				initialized = false;
-				continue;
-			}
+		/* Init the video decoder */
+		av_dict_set(&opts, "flags2", "+export_mvs", 0);
+		if ((ret = avcodec_open2(dec_ctx, dec, &opts)) < 0) {
+		    fprintf(stderr, "Failed to open %s codec\n",
+			    av_get_media_type_string(type));
+		    return ret;
 		}
 
-		return process_frame(&pkt);
-	}
-	void seek(float time){//, int frameIndex){
-		//int64_t seekTarget = (int64_t)(time/frameScale);
-		//std::cout<<"seekTarget: "<<seekTarget<<std::endl;
-		float time_ = (float) time;
-		float frameIndex = time_*fps;
-		std::cout<<"Time :"<<time<<std::endl;
-		std::cout<<"Time :"<<time_<<std::endl;
-		std::cout<<"FrameIndex :"<<frameIndex<<std::endl;
-		std::cout<<"FPS :"<<fps<<std::endl;
-		//int64_t seekTarget = int64_t(time*fps) * timeBase;
-		int64_t seekTarget = (int64_t)(time * (float)AV_TIME_BASE/1000.);
-		std::cout<<"seekTarget: "<<seekTarget<<std::endl;
-		std::cout<<"AV_TIME_BASE: "<<AV_TIME_BASE<<std::endl;
-		av_seek_frame(pFormatCtx, -1, seekTarget, AVSEEK_FLAG_ANY);
-	}
-	bool process_frame(AVPacket *pkt)
-	{
-		av_frame_unref(pFrame);
+		video_stream_idx = stream_idx;
+		video_stream = fmt_ctx->streams[video_stream_idx];
+		video_dec_ctx = dec_ctx;
+	    }
 
-		int got_frame = 0;
-		int ret = avcodec_decode_video2(video_st->codec, pFrame, &got_frame, pkt);
-		if (ret < 0)
-			return false;
-
-		ret = FFMIN(ret, pkt->size); /* guard against bogus return values */
-		pkt->data += ret;
-		pkt->size -= ret;
-		return got_frame > 0;
+	    return 0;
 	}
 
 	void PutMotionVectorInMatrix(MotionVector& mv, Frame& f)
@@ -273,75 +216,82 @@ struct FrameReader
 		mv.SegmCode = '?';
 	}
 
-	void ReadMotionVectors(Frame& f)
+	
+	int decode_packet(const AVPacket *pkt, Frame &f)
 	{
-		// reading motion vectors, see ff_print_debug_info2 in ffmpeg's libavcodec/mpegvideo.c for reference and a fresh doc/examples/extract_mvs.c
-		AVFrameSideData* sd = av_frame_get_side_data(pFrame, AV_FRAME_DATA_MOTION_VECTORS);
-		
-		AVMotionVector* mvs = (AVMotionVector*)sd->data;
-		int mbcount = sd->size / sizeof(AVMotionVector);
-		MotionVector mv;
-		for(int i = 0; i < mbcount; i++)
-		{
-			AVMotionVector& mb = mvs[i];
-			InitMotionVector(mv, mb.src_x, mb.src_y, mb.dst_x - mb.src_x, mb.dst_y - mb.src_y);
-			PutMotionVectorInMatrix(mv, f);
-		}
-	}
+	    int ret = avcodec_send_packet(video_dec_ctx, pkt);
+	    if (ret < 0) {
+		fprintf(stderr, "Error while sending a packet to the decoder: \n");
+		return ret;
+	    }
 
-	void ReadRawImage(Frame& res)
-	{
-		rgb_picture.data[0] = res.RawImage.ptr();
-		sws_scale(img_convert_ctx, pFrame->data,
-			pFrame->linesize, 0,
-			video_st->codec->height,
-			rgb_picture.data, rgb_picture.linesize);
-	}
-
-	Frame Read()
-	{
-		TIMERS.ReadingAndDecoding.Start();
-		Frame res(frameIndex, Mat_<float>::zeros(DownsampledFrameSize), Mat_<float>::zeros(DownsampledFrameSize), Mat_<bool>::zeros(DownsampledFrameSize));
-		res.RawImage = Mat(OriginalFrameSize, CV_8UC3);
-
-		bool read = GetNextFrame();
-		if(read)
-		{
-			res.NoMotionVectors = av_frame_get_side_data(pFrame, AV_FRAME_DATA_MOTION_VECTORS) == NULL;
-			res.PictType = av_get_picture_type_char(pFrame->pict_type);
-			//fragile, consult fresh f_select.c and ffprobe.c when updating ffmpeg
-			res.PTS = pFrame->pkt_pts != AV_NOPTS_VALUE ? pFrame->pkt_pts : (pFrame->pkt_dts != AV_NOPTS_VALUE ? pFrame->pkt_dts : prev_pts + 1);
-			prev_pts = res.PTS;
-			if(!res.NoMotionVectors)
-				ReadMotionVectors(res);
-			if(ReadRawImages)
-				ReadRawImage(res);
-		}
-		else
-		{
-			res = Frame(res.FrameIndex);
-			res.PTS = -1;
+	    while (ret >= 0)  {
+		ret = avcodec_receive_frame(video_dec_ctx, frame);
+		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+		    break;
+		} else if (ret < 0) {
+		    fprintf(stderr, "Error while receiving a frame from the decoder: \n");
+		    return ret;
 		}
 
-		TIMERS.ReadingAndDecoding.Stop();
+		if (ret >= 0) {
+		    int i;
+		    AVFrameSideData *sd;
 
-		frameIndex++;
-		return res;
+		    video_frame_count++;
+		    sd = av_frame_get_side_data(frame, AV_FRAME_DATA_MOTION_VECTORS);
+		    if (sd) {
+			MotionVector mv_;
+			const AVMotionVector *mvs = (const AVMotionVector *)sd->data;
+			for (i = 0; i < sd->size / sizeof(*mvs); i++) {
+			    const AVMotionVector *mv = &mvs[i];
+			    InitMotionVector(mv_, mv->src_x, mv->src_y, mv->dst_x - mv->src_x, mv->dst_y - mv->src_y);
+			    PutMotionVectorInMatrix(mv_, f);
+			    printf("%d,%2d,%2d,%2d,%4d,%4d,%4d,%4d,0x%"PRIx64"\n",
+				   video_frame_count, mv->source,
+				   mv->w, mv->h, mv->src_x, mv->src_y,
+				   mv->dst_x, mv->dst_y, mv->flags);
+			}
+		    }
+		    av_frame_unref(frame);
+		}
+	    }
+
+	    return 0;
 	}
 
-	~FrameReader()
-	{
-		//causes double free error. av_free(pFrame);
-		//sws_freeContext(img_convert_ctx);
-		/*avcodec_close(video_st->codec);
-		av_close_input_file(pFormatCtx);*/
-		/*if(pAvio_buffer)
-			av_free(pAvio_buffer);*/
-		/*if(pAvioContext)
-			av_free(pAvioContext);*/
-				if(in)
-			fclose(in);
+
+
+	void release(){
+	    avcodec_close(video_dec_ctx);
+	    avformat_close_input(&fmt_ctx);
+	    av_frame_free(&frame);
+	}
+
+	
+	Frame Read(){
+		Frame fr(video_frame_count, Mat_<float>::zeros(DownsampledFrameSize), Mat_<float>::zeros(DownsampledFrameSize), Mat_<bool>::zeros(DownsampledFrameSize));
+		bool found = false;
+		int ret = 0;
+		while (av_read_frame(fmt_ctx, &pkt) >= 0 && !found) {
+        		if (pkt.stream_index == video_stream_idx){
+				found = true;
+            			ret = decode_packet(&pkt, fr);
+			}	
+        		av_packet_unref(&pkt);
+        	}
+		if (ret < 0)
+			fr.PTS = -1;
+		return fr;
+	}	
+	
+
+
+
+	~FrameReader(){
+		release();
 	}
 };
+
 
 #endif

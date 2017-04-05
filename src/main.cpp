@@ -54,7 +54,7 @@ list get_descriptors(string video, double start =0, double end =-1)
 	DescInfo hogInfo(8, false, nt_cell, opts.HogEnabled);
 
 	float time = -1;
-	FrameReader rdr(opts.VideoPath, hogInfo.enabled);
+	FrameReader rdr(opts.VideoPath.c_str());
 	Frame frame;
 	boost::python::list descriptors;
 	Size frameSizeAfterInterpolation = 
@@ -64,14 +64,14 @@ list get_descriptors(string video, double start =0, double end =-1)
 	int cellSize = rdr.OriginalFrameSize.width / frameSizeAfterInterpolation.width;
 	double fscale = 1 / 8.0;
 
-	HofMbhBuffer buffer(hogInfo, hofInfo, mbhInfo, nt_cell, tStride, frameSizeAfterInterpolation, fscale, rdr.FrameCount, true);
+	HofMbhBuffer buffer(hogInfo, hofInfo, mbhInfo, nt_cell, tStride, frameSizeAfterInterpolation, fscale, rdr.frameCount, true);
 
 	// we read and discard until we get to the start frame
 	while(time < start){
 		frame = rdr.Read();
 
 		if (frame.PTS == -1){
-			descriptors.append(-3.);
+//			descriptors.append(-3.);
 			break;
 		}
 		time = rdr.time;
@@ -79,11 +79,11 @@ list get_descriptors(string video, double start =0, double end =-1)
 	while(true){
 		Frame frame = rdr.Read();
 		if (frame.PTS == -1) {
-		    	descriptors.append(-1.);
+//		    	descriptors.append(-1.);
 			break;
 		}
 		else if (rdr.time > end){
-			descriptors.append(-2.);
+//			descriptors.append(-2.);
 			break;
 		}
 		if(frame.NoMotionVectors || (hogInfo.enabled && frame.RawImage.empty())){
@@ -111,13 +111,24 @@ float get_video_length(string video)
 {
 	Options opts(video);
 	setNumThreads(1);
-	FrameReader rdr(opts.VideoPath, false);
+	FrameReader rdr(opts.VideoPath.c_str());
 	float length;
-	length = (float) rdr.FrameCount;
+	length = (float) rdr.frameCount;
 	length /= rdr.fps;	
 	return length;
 }
+/*
 BOOST_PYTHON_MODULE(mpegflow) {
     def("run", get_descriptors);
     def("get_video_length", get_video_length);
+}
+*/
+int main(int argc, char* argv[]){
+	string video = "video.mp4";
+	std::cout<<"Extracting from "<<video<<std::endl;
+	int start = 0;
+	float end = 1.;
+	
+	//list descs = get_descriptors(video,start,end);
+	return 0;
 }
