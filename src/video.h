@@ -20,12 +20,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  */
+extern "C"{
 #include <libavcodec/avcodec.h>
 #include <libavutil/motion_vector.h>
 #include <libavformat/avformat.h>
+}
 #include <string>
 #include "common.h"
-
+#include <opencv/cv.h>
+#include <opencv/cxcore.h>
 using namespace cv;
 
 struct MotionVector
@@ -60,7 +63,6 @@ struct FrameReader
 	AVFormatContext *fmt_ctx;
 	AVCodecContext *video_dec_ctx;
 	AVStream *video_stream;
-	const char *src_filename;
 
 	int video_stream_idx;
 	AVFrame *frame;
@@ -74,6 +76,7 @@ struct FrameReader
 	float fps, frameScale;
 	int timeBase;
 	int frameCount;	
+	const char *src_filename = NULL;
 	FrameReader(const char *videoPath)
 	{
 	
@@ -81,10 +84,10 @@ struct FrameReader
 	video_dec_ctx = NULL;
 	video_stream = NULL;
 	frame = NULL;
-	src_filename = videoPath;
 	time = -1.;
 	video_stream_idx = -1;
 	video_frame_count = 0;
+	src_filename = videoPath;
 	
 	av_register_all();
 	if (avformat_open_input(&fmt_ctx, src_filename, NULL, NULL) < 0) {
@@ -220,6 +223,7 @@ struct FrameReader
 	int decode_packet(const AVPacket *pkt, Frame &f)
 	{
 	    int ret = avcodec_send_packet(video_dec_ctx, pkt);
+	    printf( "Ret_decode_packet: %d\n", ret);
 	    if (ret < 0) {
 		fprintf(stderr, "Error while sending a packet to the decoder: \n");
 		return ret;
@@ -233,7 +237,7 @@ struct FrameReader
 		    fprintf(stderr, "Error while receiving a frame from the decoder: \n");
 		    return ret;
 		}
-
+		printf( "Ret_decode_packet: %d\n", ret);
 		if (ret >= 0) {
 		    int i;
 		    AVFrameSideData *sd;
@@ -263,7 +267,7 @@ struct FrameReader
 
 
 	void release(){
-	    avcodec_close(video_dec_ctx);
+	    avcodec_free_context(&video_dec_ctx);
 	    avformat_close_input(&fmt_ctx);
 	    av_frame_free(&frame);
 	}
@@ -277,7 +281,12 @@ struct FrameReader
         		if (pkt.stream_index == video_stream_idx){
 				found = true;
             			ret = decode_packet(&pkt, fr);
+				printf("Ret : %d\n",ret);
+			//	time = (float)pkt.dts*frameScale;
+			//	printf("%.2f",time);
 			}	
+			time = (float)pkt.pts*frameScale;
+			printf("%.2f\n",time);
         		av_packet_unref(&pkt);
         	}
 		if (ret < 0)
