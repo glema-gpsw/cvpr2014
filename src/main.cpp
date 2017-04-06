@@ -35,10 +35,11 @@ struct Options
 		Dense = false;
 		Interpolation = false;
 		VideoPath = video;
-		if(!ifstream(VideoPath.c_str()).good())
+		if(!ifstream(video.c_str()).good())
 			throw runtime_error("Video doesn't exist or can't be opened: " + VideoPath);
 	}
 };
+
 list get_descriptors(string video, double start =0, double end =-1)
 {
 	Options opts(video);
@@ -54,7 +55,7 @@ list get_descriptors(string video, double start =0, double end =-1)
 	DescInfo hogInfo(8, false, nt_cell, opts.HogEnabled);
 
 	float time = -1;
-	FrameReader rdr(opts.VideoPath.c_str());
+	FrameReader rdr(video.c_str());
 	Frame frame;
 	boost::python::list descriptors;
 	Size frameSizeAfterInterpolation = 
@@ -71,18 +72,22 @@ list get_descriptors(string video, double start =0, double end =-1)
 		frame = rdr.Read();
 
 		if (frame.PTS == -1){
+			std::cout<<"PTS = -1"<<std::endl;
 //			descriptors.append(-3.);
 			break;
 		}
 		time = rdr.time;
 	}	
+	std::cout<<"IM HERE: "<<std::endl;
 	while(true){
 		Frame frame = rdr.Read();
 		if (frame.PTS == -1) {
+			std::cout<<"PTS = -1"<<std::endl;
 //		    	descriptors.append(-1.);
 			break;
 		}
 		else if (rdr.time > end){
+			std::cout<<"rdr.time > end"<<std::endl;
 //			descriptors.append(-2.);
 			break;
 		}
@@ -117,18 +122,25 @@ float get_video_length(string video)
 	length /= rdr.fps;	
 	return length;
 }
-/*
+
+
 BOOST_PYTHON_MODULE(mpegflow) {
     def("run", get_descriptors);
     def("get_video_length", get_video_length);
 }
-*/
-int main(int argc, char* argv[]){
+
+int main(int argc, char *argv[]){
 	string video = "video.mp4";
-	std::cout<<"Extracting from "<<video<<std::endl;
+//	std::cout<<"Extracting from "<<video<<std::endl;
 	int start = 0;
-	float end = 1.;
+	float end = 10.;
+	if(!ifstream(argv[1]).good())
+		throw runtime_error("Video doesn't exist or can't be opened: ");
 	
-	//list descs = get_descriptors(video,start,end);
+	list descs = get_descriptors(video,start,end);
+//	std::cout<<"LENGTH "<< descs <<std::endl;
+//	for(int i=0; i<len(descs); ++i){
+//		std::cout<<descs[i]<<"\n"<<std::endl;
+//	}
 	return 0;
 }

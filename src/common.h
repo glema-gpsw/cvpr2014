@@ -1,7 +1,6 @@
 #include <cstdio>
 #include "diag.h"
 #include <opencv/cv.h>
-#include "H5PacketTable.h"
 
 using namespace cv;
 
