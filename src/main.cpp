@@ -8,7 +8,6 @@
 #include "util.h"
 #include "video.h"
 #include "descriptors.h"
-#include "diag.h"
 #include <iterator>
 #include <vector>
 #include <boost/python.hpp>

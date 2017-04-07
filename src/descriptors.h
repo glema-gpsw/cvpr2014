@@ -4,7 +4,6 @@
 #include <opencv/cv.h>
 
 #include "common.h"
-#include "diag.h"
 #include <boost/python.hpp>
 #include <Python.h>
 using namespace cv;
@@ -375,31 +374,22 @@ struct HofMbhBuffer
 
 	void PrintPatchDescriptor(Rect rect, boost::python::list & descriptors)
 	{
-	//	TIMERS.DescriptorQuerying.Start();
 		if(hofInfo.enabled)
 		{
-	//		TIMERS.HofQuerying.Start();
 			hof.QueryPatchDescriptor(rect, hof_patchDescriptor);
-	//		TIMERS.HofQuerying.Stop();
 		}
 		if(mbhInfo.enabled)
 		{
-	//		TIMERS.MbhQuerying.Start();
 			mbhX.QueryPatchDescriptor(rect, mbhX_patchDescriptor);
 			mbhY.QueryPatchDescriptor(rect, mbhY_patchDescriptor);
-	//		TIMERS.MbhQuerying.Stop();
 		}
 		if(hogInfo.enabled)
 		{
-	//		TIMERS.HogQuerying.Start();
 			hog.QueryPatchDescriptor(rect, hog_patchDescriptor);
-	//		TIMERS.HogQuerying.Stop();
 		}
-	//	TIMERS.DescriptorQuerying.Stop();
 		
 		if(print)
 		{
-	//		TIMERS.Writing.Start();
 			//PrintPatchDescriptorHeader(rect);
 			//PrintFloatArray(patchDescriptor, descriptors);
 			/*

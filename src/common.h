@@ -1,5 +1,4 @@
 #include <cstdio>
-#include "diag.h"
 #include <opencv/cv.h>
 
 using namespace cv;
@@ -46,19 +45,15 @@ struct Frame
 	{
 		if(!NoMotionVectors)
 		{
-			TIMERS.InterpolationHOFMBH.Start();
 			Dx = InterpolateFrom16to8(Dx, afterInterpolation, fscale);
 			Dy = InterpolateFrom16to8(Dy, afterInterpolation, fscale);
-			TIMERS.InterpolationHOFMBH.Stop();
 		}
 
 		if(RawImage.data)
 		{
-			TIMERS.InterpolationHOG.Start();
 			Mat rawImageResized;
 			resize(RawImage, rawImageResized, afterInterpolation);
 			cvtColor(rawImageResized, RawImage, CV_BGR2GRAY);
-			TIMERS.InterpolationHOG.Stop();
 		}
 	}
 };
