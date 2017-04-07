@@ -220,10 +220,9 @@ struct FrameReader
 	}
 
 	
-	int decode_packet(const AVPacket *pkt, Frame &f)
+	int decode_packet(const AVPacket *pkt, Frame &f, bool &found)
 	{
 	    int ret = avcodec_send_packet(video_dec_ctx, pkt);
-	    printf( "Ret_decode_packet: %d\n", ret);
 	    if (ret < 0) {
 		fprintf(stderr, "Error while sending a packet to the decoder: \n");
 		return ret;
@@ -232,17 +231,18 @@ struct FrameReader
 	    while (ret >= 0)  {
 		ret = avcodec_receive_frame(video_dec_ctx, frame);
 		if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-		    break;
-		} else if (ret < 0) {
-		    fprintf(stderr, "Error while receiving a frame from the decoder: \n");
-		    return ret;
+			break;
 		}
-		printf( "Ret_decode_packet: %d\n", ret);
+		else if (ret< 0) { 
+			fprintf(stderr, "Error while receiving a frame from the decoder: \n");
+			return ret;
+		}   
 		if (ret >= 0) {
 		    int i;
 		    AVFrameSideData *sd;
 
 		    video_frame_count++;
+		    found = true;
 		    sd = av_frame_get_side_data(frame, AV_FRAME_DATA_MOTION_VECTORS);
 		    if (sd) {
 			MotionVector mv_;
@@ -251,10 +251,6 @@ struct FrameReader
 			    const AVMotionVector *mv = &mvs[i];
 			    InitMotionVector(mv_, mv->src_x, mv->src_y, mv->dst_x - mv->src_x, mv->dst_y - mv->src_y);
 			    PutMotionVectorInMatrix(mv_, f);
-			    printf("%d,%2d,%2d,%2d,%4d,%4d,%4d,%4d,0x%"PRIx64"\n",
-				   video_frame_count, mv->source,
-				   mv->w, mv->h, mv->src_x, mv->src_y,
-				   mv->dst_x, mv->dst_y, mv->flags);
 			}
 		    }
 		    av_frame_unref(frame);
@@ -274,23 +270,25 @@ struct FrameReader
 
 	
 	Frame Read(){
+		
 		Frame fr(video_frame_count, Mat_<float>::zeros(DownsampledFrameSize), Mat_<float>::zeros(DownsampledFrameSize), Mat_<bool>::zeros(DownsampledFrameSize));
 		bool found = false;
 		int ret = 0;
-		while (av_read_frame(fmt_ctx, &pkt) >= 0 && !found) {
+		found = false;
+		
+		while (!found && av_read_frame(fmt_ctx, &pkt) >= 0) {
+			
         		if (pkt.stream_index == video_stream_idx){
-				found = true;
-            			ret = decode_packet(&pkt, fr);
-				printf("Ret : %d\n",ret);
-			//	time = (float)pkt.dts*frameScale;
-			//	printf("%.2f",time);
-			}	
-			time = (float)pkt.pts*frameScale;
-			printf("%.2f\n",time);
+            	 		ret = decode_packet(&pkt, fr, found);
+				time = (float)pkt.dts*frameScale;
+			
+			}
+			fr.PTS=pkt.pts;	
         		av_packet_unref(&pkt);
         	}
-		if (ret < 0)
+		if (ret < 0){
 			fr.PTS = -1;
+		}
 		return fr;
 	}	
 	
@@ -304,3 +302,15 @@ struct FrameReader
 
 
 #endif
+
+int open_file(const char *src_filename){
+
+	AVFormatContext *fmt_ctx = NULL;
+	av_register_all();
+	if (avformat_open_input(&fmt_ctx, src_filename, NULL, NULL) < 0) {
+	return 1;
+	}
+	else{
+	return 0;
+	}
+}

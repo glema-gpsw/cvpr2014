@@ -48,7 +48,7 @@ list get_descriptors(string video, double start =0, double end =-1)
 	const int tStride = 5;
 	vector<Size> patchSizes;
 	patchSizes.push_back(Size(32, 32));
-	//patchSizes.push_back(Size(48, 48));
+	patchSizes.push_back(Size(48, 48));
 
 	DescInfo hofInfo(8+1, true, nt_cell, opts.HofEnabled);
 	DescInfo mbhInfo(8, false, nt_cell, opts.MbhEnabled);
@@ -64,30 +64,25 @@ list get_descriptors(string video, double start =0, double end =-1)
 			: rdr.DownsampledFrameSize;
 	int cellSize = rdr.OriginalFrameSize.width / frameSizeAfterInterpolation.width;
 	double fscale = 1 / 8.0;
-
 	HofMbhBuffer buffer(hogInfo, hofInfo, mbhInfo, nt_cell, tStride, frameSizeAfterInterpolation, fscale, rdr.frameCount, true);
 
 	// we read and discard until we get to the start frame
 	while(time < start){
 		frame = rdr.Read();
-
 		if (frame.PTS == -1){
-			std::cout<<"PTS = -1"<<std::endl;
 //			descriptors.append(-3.);
 			break;
 		}
 		time = rdr.time;
 	}	
-	std::cout<<"IM HERE: "<<std::endl;
 	while(true){
-		Frame frame = rdr.Read();
+		frame = rdr.Read();
 		if (frame.PTS == -1) {
-			std::cout<<"PTS = -1"<<std::endl;
 //		    	descriptors.append(-1.);
 			break;
 		}
 		else if (rdr.time > end){
-			std::cout<<"rdr.time > end"<<std::endl;
+			//rdr.release();
 //			descriptors.append(-2.);
 			break;
 		}
@@ -127,20 +122,6 @@ float get_video_length(string video)
 BOOST_PYTHON_MODULE(mpegflow) {
     def("run", get_descriptors);
     def("get_video_length", get_video_length);
+    def("open_file", open_file);
 }
 
-int main(int argc, char *argv[]){
-	string video = "video.mp4";
-//	std::cout<<"Extracting from "<<video<<std::endl;
-	int start = 0;
-	float end = 10.;
-	if(!ifstream(argv[1]).good())
-		throw runtime_error("Video doesn't exist or can't be opened: ");
-	
-	list descs = get_descriptors(video,start,end);
-//	std::cout<<"LENGTH "<< descs <<std::endl;
-//	for(int i=0; i<len(descs); ++i){
-//		std::cout<<descs[i]<<"\n"<<std::endl;
-//	}
-	return 0;
-}
